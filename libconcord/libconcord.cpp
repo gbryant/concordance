@@ -421,6 +421,10 @@ const char *lc_cb_stage_str(int stage)
             return "Reading safemode fw";
             break;
 
+        case LC_CB_STAGE_READ_FLASH:
+            return "Reading flash";
+            break;
+
         case LC_CB_STAGE_RESET:
             return "Rebooting remote";
             break;
@@ -1382,6 +1386,32 @@ int read_safemode_from_remote(uint8_t **out, uint32_t *size, lc_callback cb,
     *size = FIRMWARE_MAX_SIZE;
     return _read_fw_from_remote(*out, *size, ri.arch->flash_base, cb,
         cb_arg, LC_CB_STAGE_READ_SAFEMODE);
+}
+
+int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
+                                 lc_callback cb, void *cb_arg)
+{
+    /* Flash commands carry a 24-bit address */
+    if (size == 0 || addr > 0xFFFFFF || size > 0x1000000 - addr) {
+        return LC_ERROR;
+    }
+
+    /*
+     * ReadFlash copies whole response packets, so it can run a few bytes
+     * past the requested length; pad the buffer for that.
+     */
+    *out = new uint8_t[size + 64];
+
+    if (!cb_arg) {
+        cb_arg = (void *)true;
+    }
+
+    if (rmt->ReadFlash(addr, size, *out, ri.protocol, false, cb, cb_arg,
+                       LC_CB_STAGE_READ_FLASH)) {
+        return LC_ERROR_READ;
+    }
+
+    return 0;
 }
 
 int write_safemode_to_file(uint8_t *in, uint32_t size, char *file_name)

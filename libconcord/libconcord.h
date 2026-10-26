@@ -83,6 +83,7 @@
 #define LC_CB_STAGE_SET_TIME 19
 #define LC_CB_STAGE_HTTP 20
 #define LC_CB_STAGE_LEARN 21
+#define LC_CB_STAGE_READ_FLASH 22
 
 
 /*
@@ -360,6 +361,15 @@ int read_safemode_from_remote(uint8_t **out, uint32_t *size, lc_callback cb,
 /*
  * NOTE: You CAN NOT WRITE SAFEMODE FIRMWARE OVER USB!
  */
+
+/*
+ * Read an arbitrary range of flash from the remote, read-only. This is
+ * for backing up regions (e.g. the full arch 14 firmware) that the other
+ * dump functions don't cover. Use delete_blob to reclaim the memory, and
+ * write_safemode_to_file to save it as pure binary.
+ */
+int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
+                                 lc_callback cb, void *cb_arg);
 
 /*
  * Write aforementioned safemode data to a file. Note that this is always
