@@ -1420,7 +1420,8 @@ int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
 
 /* Arch 14 external flash layout: firmware image, then Region 3 at 0x20000 */
 #define ARCH14_FW_ADDR 0x000000
-#define ARCH14_FW_MAX_SIZE 0x020000
+/* The bootloader copies at most 0x15C00 bytes (internal 0x9000-0x1EC00) */
+#define ARCH14_FW_MAX_SIZE 0x015C00
 #define ARCH14_SECTOR_SIZE 0x010000
 #define ARCH14_FW_HEADER_SIZE 8
 
