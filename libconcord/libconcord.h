@@ -375,12 +375,14 @@ int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
 /*
  * Arch 14 (Harmony 650/700) only, EXPERIMENTAL: write a raw application
  * firmware image (as decoded from Region_2.EZUpgrade) to external flash at
- * 0x000000, then read it back to verify. Does not reset the remote.
+ * 0x000000 using the same sequence as Logitech's updater, including the
+ * RAM[0] handshake, and read it back to verify. Does not reset the remote;
+ * the bootloader installs the image on the next reset.
  *
- * The image is checked first (size, 0x4847 marker, entry goto, header
- * checksum) and the remote must be in application or safe mode; any
- * failure returns before anything is erased. With dry_run set, only the
- * checks are done.
+ * The image is checked first (header size field, 0x4847 marker, entry
+ * goto, header checksum) and the remote must be in application or safe
+ * mode; any failure returns before anything is written. With dry_run set,
+ * only the checks are done.
  */
 int write_arch14_firmware(const uint8_t *img, uint32_t size, int dry_run,
                           lc_callback cb, void *cb_arg);

@@ -888,8 +888,8 @@ int write_arch14_fw(struct options_t *options, char *file_name,
     }
 
     int err;
-    printf("Checking %s (0x%zX bytes, header version bytes %02X %02X)\n",
-           file_name, size, size > 7 ? img[6] : 0, size > 7 ? img[7] : 0);
+    printf("Checking %s (0x%zX bytes, version byte 0x%02X)\n",
+           file_name, size, size > 7 ? img[7] : 0);
     if ((err = write_arch14_firmware(img, size, 1, NULL, NULL))) {
         return err;
     }

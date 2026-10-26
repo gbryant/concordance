@@ -568,6 +568,12 @@ int CRemote::EraseSector(uint32_t sector_begin)
     return HID_ReadReport(rsp, 5000);
 }
 
+int CRemote::RestartConfig(uint8_t entry_point, uint8_t configuration)
+{
+    return WriteMiscByte(entry_point, 1, COMMAND_MISC_RESTART_CONFIG,
+                         &configuration);
+}
+
 int CRemote::WriteFlash(uint32_t addr, const uint32_t len, const uint8_t *wr,
     unsigned int protocol, lc_callback cb, void *cb_arg, uint32_t cb_stage)
 {
