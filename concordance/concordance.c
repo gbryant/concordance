@@ -104,6 +104,7 @@ struct options_t {
     int force;
     uint32_t flash_addr;
     uint32_t flash_len;
+    int commit;
 };
 
 enum {
@@ -115,6 +116,7 @@ enum {
     MODE_WRITE_FIRMWARE,
     MODE_DUMP_SAFEMODE,
     MODE_DUMP_FLASH,
+    MODE_WRITE_ARCH14_FW,
     MODE_HELP,
     MODE_LEARN_IR,
     MODE_RESET,
@@ -376,6 +378,8 @@ void parse_options(struct options_t *options, int *mode, char **file_name,
         {"dump-flash", optional_argument, 0, 0},
         {"flash-addr", required_argument, 0, 0},
         {"flash-len", required_argument, 0, 0},
+        {"write-arch14-fw", required_argument, 0, 0},
+        {"commit", no_argument, 0, 0},
         {"connectivity-test", required_argument, 0, 't'},
         {"get-time", no_argument, 0, 'k' },
         {"set-time", no_argument, 0, 'K' },
@@ -393,6 +397,7 @@ void parse_options(struct options_t *options, int *mode, char **file_name,
     (*options).noreset = 0;
     (*options).flash_addr = DEFAULT_FLASH_ADDR;
     (*options).flash_len = DEFAULT_FLASH_LEN;
+    (*options).commit = 0;
 
     *mode = MODE_UNSET;
 
@@ -420,6 +425,16 @@ void parse_options(struct options_t *options, int *mode, char **file_name,
             }
             if (!strcmp(long_options[option_index].name, "flash-len")) {
                 (*options).flash_len = strtoul(optarg, NULL, 0);
+                break;
+            }
+            if (!strcmp(long_options[option_index].name,
+                        "write-arch14-fw")) {
+                set_mode(mode, MODE_WRITE_ARCH14_FW);
+                *file_name = optarg;
+                break;
+            }
+            if (!strcmp(long_options[option_index].name, "commit")) {
+                (*options).commit = 1;
                 break;
             }
             break;
@@ -565,6 +580,11 @@ void help()
     printf("   --dump-flash[=<filename>] [--flash-addr=N] [--flash-len=N]\n");
     printf("\tRead a raw range of flash (read-only) and write it to a");
     printf(" file.\n\tDefaults: flash.bin, address 0x0, length 0x30000.\n\n");
+    printf("   --write-arch14-fw=<image.bin> [--commit] [--no-reset]\n");
+    printf("\tEXPERIMENTAL, Harmony 650/700 only. Check a raw firmware");
+    printf(" image and,\n\twith --commit, write it to external flash at");
+    printf(" 0x0, verify it and\n\treset (unless --no-reset). Without");
+    printf(" --commit nothing is written.\n\n");
     printf("   -t, --connectivity-test <filename>\n");
     printf("\tDo a connectivity test using <filename>\n\n");
     printf("   -V, --version\n");
@@ -852,6 +872,48 @@ int dump_flash(struct options_t *options, char *file_name, lc_callback cb,
     return 0;
 }
 
+int write_arch14_fw(struct options_t *options, char *file_name,
+                    lc_callback cb, void *cb_arg)
+{
+    FILE *f = fopen(file_name, "rb");
+    if (!f) {
+        return LC_ERROR_OS_FILE;
+    }
+    static uint8_t img[0x20001];
+    size_t size = fread(img, 1, sizeof(img), f);
+    fclose(f);
+    if (size == 0 || size >= sizeof(img)) {
+        fprintf(stderr, "Image must be 1 to 0x20000 bytes\n");
+        return LC_ERROR;
+    }
+
+    int err;
+    printf("Checking %s (0x%zX bytes, header version bytes %02X %02X)\n",
+           file_name, size, size > 7 ? img[6] : 0, size > 7 ? img[7] : 0);
+    if ((err = write_arch14_firmware(img, size, 1, NULL, NULL))) {
+        return err;
+    }
+    printf("Image checks passed.\n");
+
+    if (!options->commit) {
+        printf("Dry run: nothing written. Add --commit to write.\n");
+        return 0;
+    }
+
+    if ((err = write_arch14_firmware(img, size, 0, cb, cb_arg))) {
+        return err;
+    }
+    printf("Firmware written and verified.\n");
+
+    if (!options->noreset) {
+        printf("Resetting...\n");
+        if ((err = reset_remote(cb, cb_arg))) {
+            return err;
+        }
+    }
+    return 0;
+}
+
 int upload_firmware(struct options_t *options, lc_callback cb, void *cb_arg)
 {
     int err;
@@ -1026,7 +1088,8 @@ int main(int argc, char *argv[])
       * we have one, so lets read the file.
       */
     if (file_name && (mode != MODE_DUMP_CONFIG && mode != MODE_DUMP_FIRMWARE &&
-        mode != MODE_DUMP_SAFEMODE && mode != MODE_DUMP_FLASH)) {
+        mode != MODE_DUMP_SAFEMODE && mode != MODE_DUMP_FLASH &&
+        mode != MODE_WRITE_ARCH14_FW)) {
 
         int type;
         if ((err = read_and_parse_file(file_name, &type))) {
@@ -1187,6 +1250,14 @@ int main(int argc, char *argv[])
                              NULL);
             if (err != 0) {
                 printf("Failed to dump flash: %s\n", lc_strerror(err));
+            }
+            break;
+
+        case MODE_WRITE_ARCH14_FW:
+            err = write_arch14_fw(&options, file_name,
+                                  cb_print_percent_status, NULL);
+            if (err != 0) {
+                printf("Failed to write firmware: %s\n", lc_strerror(err));
             }
             break;
 

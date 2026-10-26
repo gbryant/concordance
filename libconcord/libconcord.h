@@ -84,6 +84,7 @@
 #define LC_CB_STAGE_HTTP 20
 #define LC_CB_STAGE_LEARN 21
 #define LC_CB_STAGE_READ_FLASH 22
+#define LC_CB_STAGE_VERIFY_FIRMWARE 23
 
 
 /*
@@ -370,6 +371,19 @@ int read_safemode_from_remote(uint8_t **out, uint32_t *size, lc_callback cb,
  */
 int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
                                  lc_callback cb, void *cb_arg);
+
+/*
+ * Arch 14 (Harmony 650/700) only, EXPERIMENTAL: write a raw application
+ * firmware image (as decoded from Region_2.EZUpgrade) to external flash at
+ * 0x000000, then read it back to verify. Does not reset the remote.
+ *
+ * The image is checked first (size, 0x4847 marker, entry goto, header
+ * checksum) and the remote must be in application or safe mode; any
+ * failure returns before anything is erased. With dry_run set, only the
+ * checks are done.
+ */
+int write_arch14_firmware(const uint8_t *img, uint32_t size, int dry_run,
+                          lc_callback cb, void *cb_arg);
 
 /*
  * Write aforementioned safemode data to a file. Note that this is always

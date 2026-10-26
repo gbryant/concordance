@@ -425,6 +425,10 @@ const char *lc_cb_stage_str(int stage)
             return "Reading flash";
             break;
 
+        case LC_CB_STAGE_VERIFY_FIRMWARE:
+            return "Verifying fw";
+            break;
+
         case LC_CB_STAGE_RESET:
             return "Rebooting remote";
             break;
@@ -1411,6 +1415,105 @@ int read_flash_range_from_remote(uint32_t addr, uint32_t size, uint8_t **out,
         return LC_ERROR_READ;
     }
 
+    return 0;
+}
+
+/* Arch 14 external flash layout: firmware image, then Region 3 at 0x20000 */
+#define ARCH14_FW_ADDR 0x000000
+#define ARCH14_FW_MAX_SIZE 0x020000
+#define ARCH14_SECTOR_SIZE 0x010000
+
+int write_arch14_firmware(const uint8_t *img, uint32_t size, int dry_run,
+                          lc_callback cb, void *cb_arg)
+{
+    if (ri.architecture != 14 || !ri.flash
+        || ri.flash->sectors[0] != ARCH14_SECTOR_SIZE) {
+        debug("Not an arch 14 remote with 64KiB sectors");
+        return LC_ERROR_UNSUPP;
+    }
+    /* Logitech's updater allows application (0) and safe (4) mode only */
+    if (ri.fw_type != 0 && ri.fw_type != 4) {
+        debug("Remote is in firmware type %d", ri.fw_type);
+        return LC_ERROR_UNSUPP;
+    }
+    if (size < 0x10 || size > ARCH14_FW_MAX_SIZE) {
+        debug("Image size 0x%X out of range", size);
+        return LC_ERROR;
+    }
+    /* "HG" marker, then the entry goto (0xEF opcode) at 0x0A */
+    if (img[8] != 0x48 || img[9] != 0x47 || img[0x0B] != 0xEF) {
+        debug("Image header doesn't look like an arch 14 firmware");
+        return LC_ERROR;
+    }
+
+    /*
+     * Pad with 0xFF to a 256-byte boundary. Header bytes 0-1 are an XOR
+     * checksum of the 16-bit words from offset 4 to the end, seeded with
+     * 0x21, 0x43 (see _fix_magic_bytes; arch 14 starts at offset 4).
+     */
+    const uint32_t padded = (size + 0xFF) & ~0xFFu;
+    if (padded > ARCH14_FW_MAX_SIZE) {
+        return LC_ERROR;
+    }
+    uint8_t *buf = new uint8_t[padded + 64];
+    memset(buf, 0xFF, padded + 64);
+    memcpy(buf, img, size);
+
+    uint8_t suma = 0x21, sumb = 0x43;
+    for (uint32_t i = 4; i < padded; i += 2) {
+        suma ^= buf[i];
+        sumb ^= buf[i + 1];
+    }
+    if (suma != buf[0] || sumb != buf[1]) {
+        debug("Header checksum %02X%02X, computed %02X%02X",
+              buf[0], buf[1], suma, sumb);
+        delete[] buf;
+        return LC_ERROR_VERIFY;
+    }
+
+    if (dry_run) {
+        delete[] buf;
+        return 0;
+    }
+
+    CRemote *r = dynamic_cast<CRemote *>(rmt);
+    if (!r) {
+        delete[] buf;
+        return LC_ERROR_UNSUPP;
+    }
+
+    const uint32_t num_sectors =
+        (padded + ARCH14_SECTOR_SIZE - 1) / ARCH14_SECTOR_SIZE;
+    for (uint32_t i = 0; i < num_sectors; i++) {
+        if (cb)
+            cb(LC_CB_STAGE_ERASE_FLASH, i, i, num_sectors,
+               LC_CB_COUNTER_TYPE_STEPS, cb_arg, NULL);
+        if (r->EraseSector(ARCH14_FW_ADDR + i * ARCH14_SECTOR_SIZE)) {
+            delete[] buf;
+            return LC_ERROR_ERASE;
+        }
+    }
+    if (cb)
+        cb(LC_CB_STAGE_ERASE_FLASH, num_sectors, num_sectors, num_sectors,
+           LC_CB_COUNTER_TYPE_STEPS, cb_arg, NULL);
+
+    if (!cb_arg) {
+        cb_arg = (void *)true;
+    }
+
+    if (rmt->WriteFlash(ARCH14_FW_ADDR, padded, buf, ri.protocol, cb, cb_arg,
+                        LC_CB_STAGE_WRITE_FIRMWARE)) {
+        delete[] buf;
+        return LC_ERROR_WRITE;
+    }
+
+    if (rmt->ReadFlash(ARCH14_FW_ADDR, padded, buf, ri.protocol, true, cb,
+                       cb_arg, LC_CB_STAGE_VERIFY_FIRMWARE)) {
+        delete[] buf;
+        return LC_ERROR_VERIFY;
+    }
+
+    delete[] buf;
     return 0;
 }
 
